@@ -85,7 +85,7 @@ def _render_market_context(data_service: DataService | None) -> None:
     st.info(message)
 
 
-def _render_positions(data_service: DataService | None) -> None:
+def _render_positions_table(data_service: DataService | None) -> None:
     st.subheader("Positions")
     if not data_service:
         st.write("No data available. Configure environment variables to load positions.")
@@ -102,6 +102,9 @@ def _render_positions(data_service: DataService | None) -> None:
             {
                 "Position ID": item.position.position_id,
                 "Symbol": item.position.symbol,
+                "Short Strike": item.position.short_strike,
+                "Long Strike": item.position.long_strike,
+                "Expiration": item.position.expiration.isoformat(),
                 "Spread Value": item.spread_value,
                 "P/L": item.current_pl,
                 "Exit Action": item.exit_action,
@@ -120,7 +123,7 @@ def main() -> None:
 
     _render_summary(data_service)
     _render_market_context(data_service)
-    _render_positions(data_service)
+    _render_positions_table(data_service)
 
 
 if __name__ == "__main__":
