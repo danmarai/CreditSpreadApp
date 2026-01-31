@@ -85,16 +85,16 @@ def _render_market_context(data_service: DataService | None) -> None:
     st.info(message)
 
 
-def _render_positions_table(data_service: DataService | None) -> None:
+def _render_positions_table(data_service: DataService | None) -> list:
     st.subheader("Positions")
     if not data_service:
         st.write("No data available. Configure environment variables to load positions.")
-        return
+        return []
 
     positions = data_service.get_enriched_positions()
     if not positions:
         st.write("No positions found.")
-        return
+        return []
 
     table_rows = []
     for item in positions:
@@ -112,6 +112,29 @@ def _render_positions_table(data_service: DataService | None) -> None:
         )
 
     st.dataframe(table_rows, use_container_width=True)
+    return positions
+
+
+def _render_position_detail(positions: list) -> None:
+    st.subheader("Position Detail")
+    if not positions:
+        st.write("Select a position once data is available.")
+        return
+
+    position_ids = [item.position.position_id for item in positions]
+    selected_id = st.selectbox("Position", position_ids)
+    selected = next((item for item in positions if item.position.position_id == selected_id), None)
+    if not selected:
+        st.write("Position not found.")
+        return
+
+    cols = st.columns(3)
+    cols[0].metric("Spread Value", f"{selected.spread_value:.2f}" if selected.spread_value else "N/A")
+    cols[1].metric("Current P/L", f"${selected.current_pl:,.2f}" if selected.current_pl else "N/A")
+    cols[2].metric("Exit Action", selected.exit_action)
+
+    st.markdown("#### Exit Details")
+    st.json(selected.exit_details)
 
 
 def main() -> None:
@@ -123,7 +146,8 @@ def main() -> None:
 
     _render_summary(data_service)
     _render_market_context(data_service)
-    _render_positions_table(data_service)
+    positions = _render_positions_table(data_service)
+    _render_position_detail(positions)
 
 
 if __name__ == "__main__":
