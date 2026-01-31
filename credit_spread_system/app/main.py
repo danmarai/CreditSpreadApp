@@ -8,6 +8,7 @@ import streamlit as st
 from credit_spread_system.alpaca_client import AlpacaClient
 from credit_spread_system.config import load_config
 from credit_spread_system.data_service import DataService
+from credit_spread_system.iv_rank import IvRankService
 from credit_spread_system.sheets_client import SheetsClient
 
 logger = logging.getLogger(__name__)
@@ -39,16 +40,16 @@ def _build_header() -> None:
         )
 
 
-def _load_services() -> DataService | None:
+def _load_services() -> tuple[DataService | None, AlpacaClient | None]:
     try:
         load_config()
         sheets = SheetsClient.from_env()
         alpaca = AlpacaClient.from_env()
-        return DataService(sheets, alpaca)
+        return DataService(sheets, alpaca), alpaca
     except Exception as exc:  # noqa: BLE001
         st.warning("Configuration missing or invalid. Showing empty dashboard.")
         logger.warning("Failed to initialize services: %s", exc)
-        return None
+        return None, None
 
 
 def _render_summary(data_service: DataService | None) -> None:
@@ -75,6 +76,28 @@ def _render_summary(data_service: DataService | None) -> None:
     summary_cols[1].metric("Deployment", f"{deployment * 100:.1f}%")
     summary_cols[2].metric("Daily Stop", daily_status)
     summary_cols[3].metric("Weekly Stop", weekly_status)
+
+
+def _render_iv_rank(alpaca: AlpacaClient | None) -> None:
+    st.subheader("IV Rank")
+    if alpaca is None:
+        st.info("IV Rank unavailable. Configure Alpaca credentials.")
+        return
+
+    symbol = st.text_input("IV Rank Symbol", value="SPY")
+    if not symbol:
+        st.info("Enter a symbol to view IV Rank.")
+        return
+
+    service = IvRankService()
+    result = service.get_iv_rank(symbol.upper(), alpaca)
+
+    if result.iv_rank is None:
+        st.warning(result.reason)
+        return
+
+    status = "BLOCKED" if result.blocked else "OK"
+    st.metric("IV Rank", f"{result.iv_rank:.2f}", help=f"Status: {status}")
 
 
 def _render_market_context(data_service: DataService | None) -> None:
@@ -142,9 +165,10 @@ def main() -> None:
     _apply_theme()
     _build_header()
 
-    data_service = _load_services()
+    data_service, alpaca = _load_services()
 
     _render_summary(data_service)
+    _render_iv_rank(alpaca)
     _render_market_context(data_service)
     positions = _render_positions_table(data_service)
     _render_position_detail(positions)
