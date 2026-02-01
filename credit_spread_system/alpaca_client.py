@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from credit_spread_system.config import load_config
 
@@ -16,6 +16,18 @@ class Quote:
     ask: Optional[float]
     last: Optional[float]
     timestamp: Optional[Any] = None
+
+
+@dataclass(frozen=True)
+class OptionContract:
+    symbol: str
+    expiration: str
+    strike: float
+    option_type: str
+    bid: Optional[float]
+    ask: Optional[float]
+    last: Optional[float]
+    open_interest: Optional[int]
 
 
 class AlpacaClient:
@@ -97,6 +109,50 @@ class AlpacaClient:
             logger.warning("Failed to fetch underlying price: %s", exc)
             return None
 
+    def get_price_history(self, symbol: str, days: int = 260) -> Optional[Sequence[dict[str, Any]]]:
+        cache_key = f"history:{symbol}:{days}"
+        cached = self._get_cache(cache_key)
+        if cached is not None:
+            return cached
+
+        if not self._market_client:
+            logger.warning("Market client unavailable; cannot fetch price history")
+            return None
+
+        try:
+            raw = self._fetch_price_history(symbol, days)
+            if raw is not None:
+                self._set_cache(cache_key, raw)
+            return raw
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to fetch price history: %s", exc)
+            return None
+
+    def get_option_chain(
+        self,
+        symbol: str,
+        expiration: str,
+        option_type: str = "put",
+    ) -> Optional[list[OptionContract]]:
+        cache_key = f"chain:{symbol}:{expiration}:{option_type}"
+        cached = self._get_cache(cache_key)
+        if cached is not None:
+            return cached
+
+        if not self._options_client:
+            logger.warning("Option client unavailable; cannot fetch option chain")
+            return None
+
+        try:
+            raw = self._fetch_option_chain(symbol, expiration, option_type)
+            contracts = _normalize_option_chain(raw)
+            if contracts is not None:
+                self._set_cache(cache_key, contracts)
+            return contracts
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to fetch option chain: %s", exc)
+            return None
+
     def _get_cache(self, key: str) -> Any | None:
         now = time.monotonic()
         cached = self._quote_cache.get(key)
@@ -137,6 +193,26 @@ class AlpacaClient:
             return client.get_price(symbol)
         raise AttributeError("Market client does not expose a supported price method")
 
+    def _fetch_price_history(self, symbol: str, days: int) -> Any:
+        client = self._market_client
+        if client is None:
+            raise RuntimeError("Market client is not configured")
+        if hasattr(client, "get_price_history"):
+            return client.get_price_history(symbol, days)
+        if hasattr(client, "get_bars"):
+            return client.get_bars(symbol, days)
+        raise AttributeError("Market client does not expose a supported history method")
+
+    def _fetch_option_chain(self, symbol: str, expiration: str, option_type: str) -> Any:
+        client = self._options_client
+        if client is None:
+            raise RuntimeError("Options client is not configured")
+        if hasattr(client, "get_option_chain"):
+            return client.get_option_chain(symbol, expiration, option_type)
+        if hasattr(client, "get_options"):
+            return client.get_options(symbol, expiration, option_type)
+        raise AttributeError("Options client does not expose a supported chain method")
+
 
 def _normalize_quote(raw: Any) -> Optional[Quote]:
     if raw is None:
@@ -174,7 +250,53 @@ def _extract_price(raw: Any) -> Optional[float]:
     return None
 
 
+def _normalize_option_chain(raw: Any) -> Optional[list[OptionContract]]:
+    if raw is None:
+        return None
+    contracts: list[OptionContract] = []
+    if isinstance(raw, list):
+        iterable = raw
+    elif hasattr(raw, "data"):
+        iterable = raw.data  # type: ignore[attr-defined]
+    else:
+        iterable = []
+    for item in iterable:
+        if isinstance(item, dict):
+            contracts.append(
+                OptionContract(
+                    symbol=str(item.get("symbol", "")),
+                    expiration=str(item.get("expiration", "")),
+                    strike=float(item.get("strike", 0.0)),
+                    option_type=str(item.get("option_type", "put")),
+                    bid=_parse_optional_float(item.get("bid_price", item.get("bid"))),
+                    ask=_parse_optional_float(item.get("ask_price", item.get("ask"))),
+                    last=_parse_optional_float(item.get("last_price", item.get("last"))),
+                    open_interest=_parse_optional_int(item.get("open_interest")),
+                )
+            )
+        else:
+            contracts.append(
+                OptionContract(
+                    symbol=str(getattr(item, "symbol", "")),
+                    expiration=str(getattr(item, "expiration", "")),
+                    strike=float(getattr(item, "strike", 0.0)),
+                    option_type=str(getattr(item, "option_type", "put")),
+                    bid=_parse_optional_float(getattr(item, "bid_price", getattr(item, "bid", None))),
+                    ask=_parse_optional_float(getattr(item, "ask_price", getattr(item, "ask", None))),
+                    last=_parse_optional_float(getattr(item, "last_price", getattr(item, "last", None))),
+                    open_interest=_parse_optional_int(getattr(item, "open_interest", None)),
+                )
+            )
+    return contracts
+
+
 def _parse_optional_float(value: Any) -> Optional[float]:
     if value is None:
         return None
     return float(value)
+
+
+def _parse_optional_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    return int(value)

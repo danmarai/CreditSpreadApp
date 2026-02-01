@@ -22,6 +22,15 @@ class FakeAlpaca(AlpacaClient):
     def get_underlying_price(self, symbol):
         return 100.0
 
+    def get_price_history(self, symbol, days=260):
+        return [{"close": 100 + i * 0.5, "volume": 2_000_000, "date": "2026-01-01"} for i in range(days)]
+
+    def get_iv_history(self, symbol):
+        return [20.0, 30.0, 40.0]
+
+    def get_option_chain(self, symbol, expiration, option_type="put"):
+        return []
+
 
 def test_get_enriched_positions():
     rows = [
@@ -72,3 +81,9 @@ def test_get_market_context():
     context = service.get_market_context()
 
     assert "market_status" in context
+
+
+def test_get_daily_trade_suggestions_returns_list():
+    service = DataService(FakeSheets([]), FakeAlpaca())
+    suggestions = service.get_daily_trade_suggestions()
+    assert isinstance(suggestions, list)

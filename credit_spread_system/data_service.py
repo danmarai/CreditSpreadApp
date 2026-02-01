@@ -16,6 +16,7 @@ from credit_spread_system.portfolio_risk import (
 )
 from credit_spread_system.pricing import get_option_price, get_spread_value
 from credit_spread_system.sheets_client import SheetsClient
+from credit_spread_system.trade_suggestions import SuggestionEngine, TradeSuggestion
 
 logger = logging.getLogger(__name__)
 
@@ -127,3 +128,7 @@ class DataService:
     def get_market_context(self) -> dict[str, object]:
         market_status = get_market_status()
         return {"market_status": market_status, "quotes_stale": False}
+
+    def get_daily_trade_suggestions(self) -> list[TradeSuggestion]:
+        engine = SuggestionEngine(self.alpaca)
+        return engine.generate_suggestions()
