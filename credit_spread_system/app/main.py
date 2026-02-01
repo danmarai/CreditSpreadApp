@@ -100,6 +100,41 @@ def _render_iv_rank(alpaca: AlpacaClient | None) -> None:
     st.metric("IV Rank", f"{result.iv_rank:.2f}", help=f"Status: {status}")
 
 
+def _render_trade_suggestions(data_service: DataService | None) -> None:
+    st.subheader("Today's Top 5 Setups")
+    if not data_service:
+        st.write("Configure data sources to load suggestions.")
+        return
+
+    suggestions = data_service.get_daily_trade_suggestions()
+    if not suggestions:
+        st.write("No qualifying setups today.")
+        return
+
+    rows = []
+    for suggestion in suggestions:
+        rows.append(
+            {
+                "Symbol": suggestion.symbol,
+                "Short Strike": suggestion.short_strike,
+                "Long Strike": suggestion.long_strike,
+                "Expiration": suggestion.expiration,
+                "Credit": suggestion.credit,
+                "Support": suggestion.support_level,
+                "Trend Score": suggestion.trend_score,
+                "Risk": suggestion.risk_label,
+            }
+        )
+
+    st.dataframe(rows, use_container_width=True)
+
+    selected_symbol = st.selectbox("Suggestion Detail", [s.symbol for s in suggestions])
+    selected = next((s for s in suggestions if s.symbol == selected_symbol), None)
+    if selected:
+        st.markdown("#### Reasoning")
+        st.write(selected.reasoning)
+
+
 def _render_market_context(data_service: DataService | None) -> None:
     st.subheader("Market Context")
     context = data_service.get_market_context() if data_service else {"market_status": {"message": "Unknown"}}
@@ -169,6 +204,7 @@ def main() -> None:
 
     _render_summary(data_service)
     _render_iv_rank(alpaca)
+    _render_trade_suggestions(data_service)
     _render_market_context(data_service)
     positions = _render_positions_table(data_service)
     _render_position_detail(positions)

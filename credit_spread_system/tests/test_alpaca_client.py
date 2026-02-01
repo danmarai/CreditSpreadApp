@@ -61,3 +61,45 @@ def test_get_underlying_price_error_returns_none():
     price = client.get_underlying_price("QQQ")
 
     assert price is None
+
+
+def test_get_price_history_cached(monkeypatch):
+    calls = {"count": 0}
+
+    class FakeMarketClient:
+        def get_price_history(self, _symbol, _days):
+            calls["count"] += 1
+            return [{"close": 100.0}, {"close": 101.0}]
+
+    client = AlpacaClient(options_client=None, market_client=FakeMarketClient(), cache_ttl_seconds=60)
+    times = iter([0.0, 10.0, 20.0])
+    monkeypatch.setattr("credit_spread_system.alpaca_client.time.monotonic", lambda: next(times))
+
+    first = client.get_price_history("SPY", days=10)
+    second = client.get_price_history("SPY", days=10)
+
+    assert calls["count"] == 1
+    assert first == second
+
+
+def test_get_option_chain_normalizes_dicts():
+    class FakeOptionsClient:
+        def get_option_chain(self, _symbol, _expiration, _option_type):
+            return [
+                {
+                    "symbol": "SPY",
+                    "expiration": "2026-03-20",
+                    "strike": 100.0,
+                    "option_type": "put",
+                    "bid": 1.0,
+                    "ask": 1.2,
+                    "last": 1.1,
+                    "open_interest": 600,
+                }
+            ]
+
+    client = AlpacaClient(options_client=FakeOptionsClient(), market_client=None)
+    chain = client.get_option_chain("SPY", "2026-03-20", "put")
+
+    assert chain is not None
+    assert chain[0].open_interest == 600
